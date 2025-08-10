@@ -1,19 +1,82 @@
 #include <time.h>
 #define NEURALNETWORK_IMPLEMENTATION
 #include "neural_network.h"
+typedef struct {
+  Matrix a0;
+  Matrix w1, b1, a1;
+  Matrix w2, b2, a2;
+} Model_2;
 
+void forward(Model_2 model) {
+  dot_product(model.a1, model.a0, model.w1);
+  matrix_sum(model.a1, model.b1);
+  sigmoid_activation(model.a1);
+
+  dot_product(model.a2, model.a1, model.w2);
+  matrix_sum(model.a2, model.b2);
+  sigmoid_activation(model.a2);
+}
+
+float calculate_cost(Model_2 model, Matrix train_x, Matrix train_y) {
+  assert(train_x.rows == train_y.rows);
+  assert(train_y.rows == model.a2.rows);
+  size_t num_train_x = train_x.rows;
+
+  float cost = 0;
+  for (size_t i = 0; i < num_train_x; ++i) {
+    Matrix train_x_row = get_matrix_row(train_x, i);
+    Matrix train_y_row = get_matrix_row(train_y, i);
+
+    matrix_copy(model.a0, train_x_row);
+    forward(model);
+    size_t num_train_y = train_y.cols;
+    for (size_t j = 0; j < num_train_y; ++j) {
+      float diff = VALUE_AT(model.a2, 0, j) - VALUE_AT(train_y_row, 0, j);
+      cost += diff * diff;
+    }
+  }
+  return cost / num_train_x;
+}
+float train_data[] = {0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 0};
 int main(void) {
   srand(time(0));
-  Matrix a = mat_alloc(2, 2);
-  Matrix b = mat_alloc(2, 2);
-  fill_matrix(a, 1);
-  printf("Matrix A:\n");
-  print_matrix(a);
-  fill_matrix(b, 1);
-  printf("Matrix B:\n");
-  print_matrix(b);
-  Matrix result = mat_alloc(2, 2);
-  dot_product(result, a, b);
-  print_matrix(result);
+  size_t n = sizeof(train_data) / sizeof(train_data[0]) / 3;
+  size_t stride = 3;
+  Matrix train_input = {
+      .rows = n,
+      .cols = 2,
+      .stride = stride,
+      .es = train_data,
+  };
+
+  Matrix train_output = {
+      .rows = n,
+      .cols = 1,
+      .stride = stride,
+      .es = train_data + 2,
+  };
+  PRETTY_PRINT_MATRIX(train_input);
+  PRETTY_PRINT_MATRIX(train_output);
+  Model_2 Xor;
+  Xor.a0 = mat_alloc(1, 2);
+  Xor.w1 = mat_alloc(2, 2);
+  Xor.b1 = mat_alloc(1, 2);
+  Xor.a1 = mat_alloc(1, 2);
+  Xor.w2 = mat_alloc(2, 1);
+  Xor.b2 = mat_alloc(1, 1);
+  Xor.a2 = mat_alloc(1, 1);
+
+  randomize_matrix(Xor.w1, 0, 1);
+  randomize_matrix(Xor.b1, 0, 1);
+  randomize_matrix(Xor.w2, 0, 1);
+  randomize_matrix(Xor.b2, 0, 1);
+  for (size_t i = 0; i < 2; ++i) {
+    for (size_t j = 0; j < 2; ++j) {
+      forward(Xor);
+      float y = *Xor.a2.es;
+      printf("%zu ^ %zu = %f\n", i, j, y);
+    }
+  }
+
   return 0;
 }
