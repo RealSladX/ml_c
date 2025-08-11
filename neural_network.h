@@ -13,27 +13,46 @@
 #define NN_ASSERT assert
 #endif // NN_ASSERT
 
+#define ARRAY_LEN(xs) sizeof((xs)) / sizeof((xs)[0])
+#define VALUE_AT(m, i, j) m.es[(i) * (m).stride + (j)]
+float rand_float(void);
+float sigmoidf(float x);
+
 typedef struct {
   size_t rows;
   size_t cols;
   size_t stride;
   float *es;
 } Matrix;
-#define VALUE_AT(m, i, j) m.es[(i) * (m).stride + (j)]
 
-float rand_float(void);
-float sigmoidf(float x);
 Matrix mat_alloc(size_t rows, size_t cols);
 void randomize_matrix(Matrix m, float low, float high);
 Matrix get_matrix_row(Matrix m, size_t row);
-
 void matrix_copy(Matrix dst, Matrix src);
 void fill_matrix(Matrix m, float fill);
 void dot_product(Matrix result, Matrix a, Matrix b);
 void matrix_sum(Matrix result, Matrix a);
-void print_matrix(Matrix m, const char *name);
+void print_matrix(Matrix m, const char *name, size_t padding);
 void sigmoid_activation(Matrix m);
-#define PRETTY_PRINT_MATRIX(m) print_matrix(m, #m)
+#define PRETTY_PRINT_MATRIX(m) print_matrix(m, #m, 0)
+
+typedef struct {
+  size_t num_layers;
+  Matrix *ws;
+  Matrix *bs;
+  Matrix *as;
+} NeuralNetwork;
+#define NN_INPUT(nn) (nn).as[0]
+#define NN_OUTPUT(nn) (nn).as[(nn).num_layers]
+NeuralNetwork nn_alloc(size_t *layers, size_t total_num_layers);
+void print_nn(NeuralNetwork nn, const char *name);
+#define PRETTY_PRINT_NN(nn) print_nn(nn, #nn)
+void randomize_nn(NeuralNetwork nn, float low, float high);
+void forward(NeuralNetwork nn);
+float calculate_cost(NeuralNetwork nn, Matrix train_input, Matrix train_output);
+void finite_diff(NeuralNetwork nn, NeuralNetwork gradient, float epsilon,
+                 Matrix train_input, Matrix train_output);
+void learn(NeuralNetwork nn, NeuralNetwork gradient, float learning_rate);
 #endif // NEURAL_NETWORK_H
 
 #ifdef NEURALNETWORK_IMPLEMENTATION
@@ -109,15 +128,127 @@ void sigmoid_activation(Matrix m) {
     }
   }
 }
-void print_matrix(Matrix m, const char *name) {
-  printf("%s = [\n", name);
+void print_matrix(Matrix m, const char *name, size_t padding) {
+  printf("%*s%s = [\n", (int)padding, "", name);
   for (size_t i = 0; i < m.rows; ++i) {
     for (size_t j = 0; j < m.cols; ++j) {
-      printf("    %f ", VALUE_AT(m, i, j));
+      printf("%*s    %f ", (int)padding, "", VALUE_AT(m, i, j));
     }
     printf("\n");
   }
+  printf("%*s]\n", (int)padding, "");
+}
+
+NeuralNetwork nn_alloc(size_t *layers, size_t total_num_layers) {
+  NN_ASSERT(total_num_layers > 0);
+
+  NeuralNetwork nn;
+  nn.num_layers = total_num_layers - 1;
+
+  nn.ws = NN_MALLOC(sizeof(*nn.ws) * nn.num_layers);
+  NN_ASSERT(nn.ws != NULL);
+  nn.bs = NN_MALLOC(sizeof(*nn.bs) * nn.num_layers);
+  NN_ASSERT(nn.bs != NULL);
+  nn.as = NN_MALLOC(sizeof(*nn.as) * nn.num_layers);
+  NN_ASSERT(nn.as != NULL);
+
+  nn.as[0] = mat_alloc(1, layers[0]);
+  for (size_t i = 1; i < total_num_layers; ++i) {
+    nn.ws[i - 1] = mat_alloc(nn.as[i - 1].cols, layers[i]);
+    nn.bs[i - 1] = mat_alloc(1, layers[i]);
+    nn.as[i] = mat_alloc(1, layers[i]);
+  }
+  return nn;
+}
+
+void print_nn(NeuralNetwork nn, const char *name) {
+  char buf[256];
+  printf("%s = [\n", name);
+  for (size_t i = 0; i < nn.num_layers; ++i) {
+    snprintf(buf, sizeof(buf), "ws%zu", i);
+    print_matrix(nn.ws[i], buf, 4);
+    snprintf(buf, sizeof(buf), "bs%zu", i);
+    print_matrix(nn.bs[i], buf, 4);
+  }
   printf("]\n");
+}
+
+void randomize_nn(NeuralNetwork nn, float low, float high) {
+  for (size_t i = 0; i < nn.num_layers; ++i) {
+    randomize_matrix(nn.ws[i], low, high);
+    randomize_matrix(nn.bs[i], low, high);
+  }
+}
+void forward(NeuralNetwork nn) {
+  for (size_t i = 0; i < nn.num_layers; ++i) {
+    dot_product(nn.as[i + 1], nn.as[i], nn.ws[i]);
+    matrix_sum(nn.as[i + 1], nn.bs[i]);
+    sigmoid_activation(nn.as[i + 1]);
+  }
+}
+float calculate_cost(NeuralNetwork nn, Matrix train_input,
+                     Matrix train_output) {
+  assert(train_input.rows == train_output.rows);
+  assert(train_output.cols == NN_OUTPUT(nn).cols);
+  size_t num_inputs = train_input.rows;
+
+  float cost = 0;
+  for (size_t i = 0; i < num_inputs; ++i) {
+    Matrix expect_input = get_matrix_row(train_input, i);
+    Matrix expect_output = get_matrix_row(train_output, i);
+
+    matrix_copy(NN_INPUT(nn), expect_input);
+    forward(nn);
+    size_t num_outputs = train_output.cols;
+    for (size_t j = 0; j < num_outputs; ++j) {
+      float diff =
+          VALUE_AT(NN_OUTPUT(nn), 0, j) - VALUE_AT(expect_output, 0, j);
+      cost += diff * diff;
+    }
+  }
+  return cost / num_inputs;
+}
+void finite_diff(NeuralNetwork nn, NeuralNetwork gradient, float epsilon,
+                 Matrix train_input, Matrix train_output) {
+  float saved;
+  float cost = calculate_cost(nn, train_input, train_output);
+  for (size_t i = 0; i < nn.num_layers; ++i) {
+    for (size_t j = 0; j < nn.ws[i].rows; ++j) {
+      for (size_t k = 0; k < nn.ws[i].cols; ++k) {
+        saved = VALUE_AT(nn.ws[i], j, k);
+        VALUE_AT(nn.ws[i], j, k) += epsilon;
+        VALUE_AT(gradient.ws[i], j, k) =
+            (calculate_cost(nn, train_input, train_output) - cost) / epsilon;
+        VALUE_AT(nn.ws[i], j, k) = saved;
+      }
+    }
+    for (size_t j = 0; j < nn.bs[i].rows; ++j) {
+      for (size_t k = 0; k < nn.bs[i].cols; ++k) {
+        saved = VALUE_AT(nn.bs[i], j, k);
+        VALUE_AT(nn.bs[i], j, k) += epsilon;
+        VALUE_AT(gradient.bs[i], j, k) =
+            (calculate_cost(nn, train_input, train_output) - cost) / epsilon;
+        VALUE_AT(nn.bs[i], j, k) = saved;
+      }
+    }
+  }
+}
+
+void learn(NeuralNetwork nn, NeuralNetwork gradient, float learning_rate) {
+  for (size_t i = 0; i < nn.num_layers; ++i) {
+    for (size_t j = 0; j < nn.ws[i].rows; ++j) {
+      for (size_t k = 0; k < nn.ws[i].cols; ++k) {
+        VALUE_AT(nn.ws[i], j, k) -=
+            learning_rate * VALUE_AT(gradient.ws[i], j, k);
+      }
+    }
+    for (size_t j = 0; j < nn.bs[i].rows; ++j) {
+      for (size_t k = 0; k < nn.bs[i].cols; ++k) {
+        VALUE_AT(nn.bs[i], j, k) -=
+            learning_rate * VALUE_AT(gradient.bs[i], j, k);
+      }
+    }
+  }
 }
 
 #endif // NEURALNETWORK_IMPLEMENTATION

@@ -1,87 +1,11 @@
 #include <time.h>
 #define NEURALNETWORK_IMPLEMENTATION
 #include "neural_network.h"
-typedef struct {
-  Matrix a0;
-  Matrix w1, b1, a1;
-  Matrix w2, b2, a2;
-} Model_2;
 
-void forward(Model_2 model) {
-  dot_product(model.a1, model.a0, model.w1);
-  matrix_sum(model.a1, model.b1);
-  sigmoid_activation(model.a1);
-
-  dot_product(model.a2, model.a1, model.w2);
-  matrix_sum(model.a2, model.b2);
-  sigmoid_activation(model.a2);
-}
-
-float calculate_cost(Model_2 model, Matrix train_x, Matrix train_y) {
-  assert(train_x.rows == train_y.rows);
-  assert(train_y.cols == model.a2.cols);
-  size_t num_train_x = train_x.rows;
-
-  float cost = 0;
-  for (size_t i = 0; i < num_train_x; ++i) {
-    Matrix train_x_row = get_matrix_row(train_x, i);
-    Matrix train_y_row = get_matrix_row(train_y, i);
-
-    matrix_copy(model.a0, train_x_row);
-    forward(model);
-    size_t num_train_y = train_y.cols;
-    for (size_t j = 0; j < num_train_y; ++j) {
-      float diff = VALUE_AT(model.a2, 0, j) - VALUE_AT(train_y_row, 0, j);
-      cost += diff * diff;
-    }
-  }
-  return cost / num_train_x;
-}
-void finite_diff(Model_2 model, Model_2 gradient, float epsilon,
-                 Matrix train_input, Matrix train_output) {
-  float saved;
-  float cost = calculate_cost(model, train_input, train_output);
-  for (size_t i = 0; i < model.w1.rows; ++i) {
-    for (size_t j = 0; j < model.w1.cols; ++j) {
-      saved = VALUE_AT(model.w1, i, j);
-      VALUE_AT(model.w1, i, j) += epsilon;
-      VALUE_AT(gradient.w1, i, j) =
-          (calculate_cost(model, train_input, train_output) - cost) / epsilon;
-      VALUE_AT(model.w1, i, j) = saved;
-    }
-  }
-  for (size_t i = 0; i < model.b1.rows; ++i) {
-    for (size_t j = 0; j < model.b1.cols; ++j) {
-      saved = VALUE_AT(model.b1, i, j);
-      VALUE_AT(model.b1, i, j) += epsilon;
-      VALUE_AT(gradient.b1, i, j) =
-          (calculate_cost(model, train_input, train_output) - cost) / epsilon;
-      VALUE_AT(model.b1, i, j) = saved;
-    }
-  }
-
-  for (size_t i = 0; i < model.w2.rows; ++i) {
-    for (size_t j = 0; j < model.w2.cols; ++j) {
-      saved = VALUE_AT(model.w2, i, j);
-      VALUE_AT(model.w2, i, j) += epsilon;
-      VALUE_AT(gradient.w2, i, j) =
-          (calculate_cost(model, train_input, train_output) - cost) / epsilon;
-      VALUE_AT(model.w2, i, j) = saved;
-    }
-  }
-  for (size_t i = 0; i < model.b2.rows; ++i) {
-    for (size_t j = 0; j < model.b2.cols; ++j) {
-      saved = VALUE_AT(model.b2, i, j);
-      VALUE_AT(model.b2, i, j) += epsilon;
-      VALUE_AT(gradient.b2, i, j) =
-          (calculate_cost(model, train_input, train_output) - cost) / epsilon;
-      VALUE_AT(model.b2, i, j) = saved;
-    }
-  }
-}
 float train_data[] = {0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 0};
 int main(void) {
   srand(time(0));
+
   size_t n = sizeof(train_data) / sizeof(train_data[0]) / 3;
   size_t stride = 3;
   Matrix train_input = {
@@ -97,31 +21,30 @@ int main(void) {
       .stride = stride,
       .es = train_data + 2,
   };
-  PRETTY_PRINT_MATRIX(train_input);
-  PRETTY_PRINT_MATRIX(train_output);
-  Model_2 Xor;
-  Xor.a0 = mat_alloc(1, 2);
-  Xor.w1 = mat_alloc(2, 2);
-  Xor.b1 = mat_alloc(1, 2);
-  Xor.a1 = mat_alloc(1, 2);
-  Xor.w2 = mat_alloc(2, 1);
-  Xor.b2 = mat_alloc(1, 1);
-  Xor.a2 = mat_alloc(1, 1);
 
-  randomize_matrix(Xor.w1, 0, 1);
-  randomize_matrix(Xor.b1, 0, 1);
-  randomize_matrix(Xor.w2, 0, 1);
-  randomize_matrix(Xor.b2, 0, 1);
+  size_t layers[] = {2, 2, 1};
+  NeuralNetwork nn = nn_alloc(layers, ARRAY_LEN(layers));
+  NeuralNetwork gradient = nn_alloc(layers, ARRAY_LEN(layers));
+  randomize_nn(nn, 0, 1);
 
-  printf("cost = %f\n", calculate_cost(Xor, train_input, train_output));
+  float epsilon = 1e-1;
+  float learning_rate = 1e-1;
 
+  printf("cost = %f\n", calculate_cost(nn, train_input, train_output));
+  size_t num_epochs = 1000 * 20;
+  for (size_t i = 0; i < num_epochs; ++i) {
+    printf("Epoch: %zu\n", i);
+    finite_diff(nn, gradient, epsilon, train_input, train_output);
+    learn(nn, gradient, learning_rate);
+    printf("cost = %f\n", calculate_cost(nn, train_input, train_output));
+  }
   for (size_t i = 0; i < 2; ++i) {
     for (size_t j = 0; j < 2; ++j) {
-      forward(Xor);
-      float y = *Xor.a2.es;
-      printf("%zu ^ %zu = %f\n", i, j, y);
+      VALUE_AT(NN_INPUT(nn), 0, 0) = i;
+      VALUE_AT(NN_INPUT(nn), 0, 1) = j;
+      forward(nn);
+      printf("%zu ^ %zu = %f\n", i, j, VALUE_AT(NN_OUTPUT(nn), 0, 0));
     }
   }
-
   return 0;
 }
