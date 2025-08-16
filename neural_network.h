@@ -45,6 +45,7 @@ typedef struct {
 #define NN_INPUT(nn) (nn).as[0]
 #define NN_OUTPUT(nn) (nn).as[(nn).num_layers]
 NeuralNetwork nn_alloc(size_t *layers, size_t total_num_layers);
+void nn_zero(NeuralNetwork nn);
 void print_nn(NeuralNetwork nn, const char *name);
 #define PRETTY_PRINT_NN(nn) print_nn(nn, #nn)
 void randomize_nn(NeuralNetwork nn, float low, float high);
@@ -52,6 +53,8 @@ void forward(NeuralNetwork nn);
 float calculate_cost(NeuralNetwork nn, Matrix train_input, Matrix train_output);
 void finite_diff(NeuralNetwork nn, NeuralNetwork gradient, float epsilon,
                  Matrix train_input, Matrix train_output);
+void backprop(NeuralNetwork nn, NeuralNetwork gradient, Matrix train_input,
+              Matrix train_output);
 void learn(NeuralNetwork nn, NeuralNetwork gradient, float learning_rate);
 #endif // NEURAL_NETWORK_H
 
@@ -161,6 +164,15 @@ NeuralNetwork nn_alloc(size_t *layers, size_t total_num_layers) {
   return nn;
 }
 
+void nn_zero(NeuralNetwork nn) {
+  for (size_t i = 0; i < nn.num_layers; ++i) {
+    fill_matrix(nn.ws[i], 0);
+    fill_matrix(nn.bs[i], 0);
+    fill_matrix(nn.as[i], 0);
+  }
+  fill_matrix(nn.as[nn.num_layers], 0);
+}
+
 void print_nn(NeuralNetwork nn, const char *name) {
   char buf[256];
   printf("%s = [\n", name);
@@ -186,6 +198,7 @@ void forward(NeuralNetwork nn) {
     sigmoid_activation(nn.as[i + 1]);
   }
 }
+
 float calculate_cost(NeuralNetwork nn, Matrix train_input,
                      Matrix train_output) {
   assert(train_input.rows == train_output.rows);
@@ -207,6 +220,50 @@ float calculate_cost(NeuralNetwork nn, Matrix train_input,
     }
   }
   return cost / num_inputs;
+}
+void backprop(NeuralNetwork nn, NeuralNetwork gradient, Matrix train_input,
+              Matrix train_output) {
+  NN_ASSERT(train_input.rows == train_output.rows);
+  size_t n = train_input.rows;
+  NN_ASSERT(NN_OUTPUT(nn).cols == train_output.cols);
+  nn_zero(gradient);
+  for (size_t i = 0; i < n; ++i) {
+    matrix_copy(NN_INPUT(nn), get_matrix_row(train_input, i));
+    forward(nn);
+    for (size_t j = 0; j <= nn.num_layers; ++j) {
+      fill_matrix(gradient.as[j], 0);
+    }
+    for (size_t j = 0; j < train_output.cols; ++j) {
+      VALUE_AT(NN_OUTPUT(gradient), 0, j) =
+          VALUE_AT(NN_OUTPUT(nn), 0, j) - VALUE_AT(train_output, i, j);
+    }
+    for (size_t l = nn.num_layers; l > 0; --l) {
+      for (size_t a = 0; a < nn.as[l].cols; ++a) {
+        float a_l = VALUE_AT(nn.as[l], 0, a);
+        float da_l = VALUE_AT(gradient.as[l], 0, a);
+        VALUE_AT(gradient.bs[l - 1], 0, a) += 2 * da_l * a_l * (1 - a_l);
+        for (size_t pa = 0; pa < nn.as[l - 1].cols; ++pa) {
+          float pa_l = VALUE_AT(nn.as[l - 1], 0, pa);
+          float w = VALUE_AT(nn.ws[l - 1], pa, a);
+          VALUE_AT(gradient.ws[l - 1], pa, a) +=
+              2 * da_l * a_l * (1 - a_l) * pa_l;
+          VALUE_AT(gradient.as[l - 1], 0, pa) += 2 * da_l * a_l * (1 - a_l) * w;
+        }
+      }
+    }
+  }
+  for (size_t i = 0; i < gradient.num_layers; ++i) {
+    for (size_t j = 0; j < gradient.ws[i].rows; ++j) {
+      for (size_t k = 0; k < gradient.ws[i].cols; ++k) {
+        VALUE_AT(gradient.ws[i], j, k) /= n;
+      }
+    }
+    for (size_t j = 0; j < gradient.bs[i].rows; ++j) {
+      for (size_t k = 0; k < gradient.bs[i].cols; ++k) {
+        VALUE_AT(gradient.bs[i], j, k) /= n;
+      }
+    }
+  }
 }
 void finite_diff(NeuralNetwork nn, NeuralNetwork gradient, float epsilon,
                  Matrix train_input, Matrix train_output) {
