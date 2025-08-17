@@ -29,17 +29,16 @@ int main(void) {
   NeuralNetwork gradient = nn_alloc(layers, ARRAY_LEN(layers));
   randomize_nn(nn, 0, 1);
 
-  float epsilon = 1e-1;
-  float learning_rate = 1e-1;
+  float learning_rate = 1;
 
-  printf("cost = %f\n", calculate_cost(nn, train_input, train_output));
-  size_t num_epochs = 1000 * 20;
+  printf("Initial cost = %f\n", calculate_cost(nn, train_input, train_output));
+  size_t num_epochs = 1000 * 10;
   for (size_t i = 0; i < num_epochs; ++i) {
-    printf("Epoch: %zu\n", i);
-    finite_diff(nn, gradient, epsilon, train_input, train_output);
+    backprop(nn, gradient, train_input, train_output);
     learn(nn, gradient, learning_rate);
-    printf("cost = %f\n", calculate_cost(nn, train_input, train_output));
   }
+  printf("After %zu Epochs: cost = %f\n", num_epochs,
+         calculate_cost(nn, train_input, train_output));
   for (size_t i = 0; i < 2; ++i) {
     for (size_t j = 0; j < 2; ++j) {
       VALUE_AT(NN_INPUT(nn), 0, 0) = i;

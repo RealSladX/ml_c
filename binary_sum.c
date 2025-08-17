@@ -1,8 +1,9 @@
+#include <threads.h>
 #include <time.h>
 #define NEURALNETWORK_IMPLEMENTATION
 #include "neural_network.h"
 
-#define BITS 3
+#define BITS 4
 
 int main(void) {
   srand(time(0));
@@ -27,18 +28,18 @@ int main(void) {
   NeuralNetwork nn = nn_alloc(arch, ARRAY_LEN(arch));
   NeuralNetwork g = nn_alloc(arch, ARRAY_LEN(arch));
   randomize_nn(nn, 0, 1);
-  printf("Initial NN:\n");
-  PRETTY_PRINT_NN(nn);
   float rate = 1;
   size_t num_epochs = 1000 * 10;
   printf("Initial Cost: c = %f\n", calculate_cost(nn, ti, to));
   for (size_t i = 0; i < num_epochs; ++i) {
+    printf("\x1b[1F");
+    printf("\x1b[2K");
+    printf("Training...%zu\n", i);
     backprop(nn, g, ti, to);
     learn(nn, g, rate);
+    thrd_sleep(&(struct timespec){.tv_sec = 0.1}, NULL);
   }
   printf("After %zu Epochs: c = %f\n", num_epochs, calculate_cost(nn, ti, to));
-  printf("Trained NN:\n");
-  PRETTY_PRINT_NN(nn);
   float fails = 0;
   for (size_t x = 0; x < n; ++x) {
     for (size_t y = 0; y < n; ++y) {
