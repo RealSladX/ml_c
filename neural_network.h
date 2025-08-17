@@ -14,7 +14,7 @@
 #endif // NN_ASSERT
 
 #define ARRAY_LEN(xs) sizeof((xs)) / sizeof((xs)[0])
-#define VALUE_AT(m, i, j) m.es[(i) * (m).stride + (j)]
+#define VALUE_AT(m, i, j) (m).es[(i) * (m).stride + (j)]
 float rand_float(void);
 float sigmoidf(float x);
 
@@ -152,7 +152,7 @@ NeuralNetwork nn_alloc(size_t *layers, size_t total_num_layers) {
   NN_ASSERT(nn.ws != NULL);
   nn.bs = NN_MALLOC(sizeof(*nn.bs) * nn.num_layers);
   NN_ASSERT(nn.bs != NULL);
-  nn.as = NN_MALLOC(sizeof(*nn.as) * nn.num_layers);
+  nn.as = NN_MALLOC(sizeof(*nn.as) * (nn.num_layers + 1));
   NN_ASSERT(nn.as != NULL);
 
   nn.as[0] = mat_alloc(1, layers[0]);
