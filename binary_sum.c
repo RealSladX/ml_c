@@ -3,7 +3,7 @@
 #define NEURALNETWORK_IMPLEMENTATION
 #include "neural_network.h"
 
-#define BITS 4
+#define BITS 5
 
 int main(void) {
   srand(time(0));
@@ -32,12 +32,12 @@ int main(void) {
   size_t num_epochs = 1000 * 10;
   printf("Initial Cost: c = %f\n", calculate_cost(nn, ti, to));
   for (size_t i = 0; i < num_epochs; ++i) {
-    printf("\x1b[1F");
-    printf("\x1b[2K");
     printf("Training...%zu\n", i);
+    printf("\x1b[1F");
+    printf("\x1b[1K");
     backprop(nn, g, ti, to);
     learn(nn, g, rate);
-    thrd_sleep(&(struct timespec){.tv_sec = 0.1}, NULL);
+    // thrd_sleep(&(struct timespec){.tv_sec = 0.1}, NULL);
   }
   printf("After %zu Epochs: c = %f\n", num_epochs, calculate_cost(nn, ti, to));
   float fails = 0;
